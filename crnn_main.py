@@ -1,4 +1,4 @@
-from __future__ import print_function
+# from __future__ import print_function
 import argparse
 import random
 import torch
@@ -15,8 +15,10 @@ import dataset
 import models.crnn as crnn
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--trainroot', required=True, help='path to dataset')
-parser.add_argument('--valroot', required=True, help='path to dataset')
+# parser.add_argument('--trainroot', required=True, help='path to dataset')
+# parser.add_argument('--valroot', required=True, help='path to dataset')
+parser.add_argument('--trainroot', default='data/image_train', help='path to dataset')
+parser.add_argument('--valroot', default='data/image_train', help='path to dataset')
 parser.add_argument('--workers', type=int, help='number of data loading workers', default=2)
 parser.add_argument('--batchSize', type=int, default=64, help='input batch size')
 parser.add_argument('--imgH', type=int, default=32, help='the height of the input image to network')
@@ -28,14 +30,14 @@ parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. de
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
 parser.add_argument('--crnn', default='', help="path to crnn (to continue training)")
-parser.add_argument('--alphabet', type=str, default='0123456789abcdefghijklmnopqrstuvwxyz')
+parser.add_argument('--alphabet', type=str, default='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~性别出生日期港澳证件号码签发更换本有效至限次数机关公安部入境管理局')
 parser.add_argument('--experiment', default=None, help='Where to store samples and models')
 parser.add_argument('--displayInterval', type=int, default=500, help='Interval to be displayed')
 parser.add_argument('--n_test_disp', type=int, default=10, help='Number of samples to display when test')
 parser.add_argument('--valInterval', type=int, default=500, help='Interval to be displayed')
 parser.add_argument('--saveInterval', type=int, default=500, help='Interval to be displayed')
 parser.add_argument('--adam', action='store_true', help='Whether to use adam (default is rmsprop)')
-parser.add_argument('--adadelta', action='store_true', help='Whether to use adadelta (default is rmsprop)')
+parser.add_argument('--adadelta', default=True, action='store_true', help='Whether to use adadelta (default is rmsprop)')
 parser.add_argument('--keep_ratio', action='store_true', help='whether to keep ratio for image resize')
 parser.add_argument('--random_sample', action='store_true', help='whether to sample the dataset with random sampler')
 opt = parser.parse_args()
@@ -57,6 +59,15 @@ if torch.cuda.is_available() and not opt.cuda:
     print("WARNING: You have a CUDA device, so you should probably run with --cuda")
 
 train_dataset = dataset.lmdbDataset(root=opt.trainroot)
+# log_file = open(os.path.join('log.txt'), 'w')
+# with train_dataset.env.begin() as txn:
+#     cursor = txn.cursor()
+#     for key, value in cursor:
+#         if key.decode().startswith('label-'):
+#             print(key)
+#             print(key.decode(), value.decode(), file=log_file)
+# log_file.flush()
+# log_file.close()
 assert train_dataset
 if not opt.random_sample:
     sampler = dataset.randomSequentialSampler(train_dataset, opt.batchSize)
@@ -64,7 +75,8 @@ else:
     sampler = None
 train_loader = torch.utils.data.DataLoader(
     train_dataset, batch_size=opt.batchSize,
-    shuffle=True, sampler=sampler,
+    #shuffle=True, sampler=sampler,
+    shuffle=True, sampler=None,
     num_workers=int(opt.workers),
     collate_fn=dataset.alignCollate(imgH=opt.imgH, imgW=opt.imgW, keep_ratio=opt.keep_ratio))
 test_dataset = dataset.lmdbDataset(
@@ -73,7 +85,7 @@ test_dataset = dataset.lmdbDataset(
 nclass = len(opt.alphabet) + 1
 nc = 1
 
-converter = utils.strLabelConverter(opt.alphabet)
+converter = utils.strLabelConverter(opt.alphabet, False)
 criterion = CTCLoss()
 
 
@@ -153,7 +165,7 @@ def val(net, dataset, criterion, max_iter=100):
         loss_avg.add(cost)
 
         _, preds = preds.max(2)
-        preds = preds.squeeze(2)
+        ##preds = preds.squeeze(2)
         preds = preds.transpose(1, 0).contiguous().view(-1)
         sim_preds = converter.decode(preds.data, preds_size.data, raw=False)
         for pred, target in zip(sim_preds, cpu_texts):
@@ -187,6 +199,7 @@ def trainBatch(net, criterion, optimizer):
 
 
 for epoch in range(opt.niter):
+    print('epoch', epoch)
     train_iter = iter(train_loader)
     i = 0
     while i < len(train_loader):
@@ -198,15 +211,18 @@ for epoch in range(opt.niter):
         loss_avg.add(cost)
         i += 1
 
+        print('train', i)
         if i % opt.displayInterval == 0:
             print('[%d/%d][%d/%d] Loss: %f' %
                   (epoch, opt.niter, i, len(train_loader), loss_avg.val()))
             loss_avg.reset()
 
         if i % opt.valInterval == 0:
+            print('valInterval')
             val(crnn, test_dataset, criterion)
 
         # do checkpointing
         if i % opt.saveInterval == 0:
+            print('checkpoin')
             torch.save(
                 crnn.state_dict(), '{0}/netCRNN_{1}_{2}.pth'.format(opt.experiment, epoch, i))
